@@ -87,3 +87,81 @@ def normalize_source(payload):
         "note": payload.get("note", ""),
     }
     return result
+
+
+def normalize_district(payload):
+    code = require_text(payload, "code")
+    name = require_text(payload, "name")
+    capacity = int(payload.get("capacity", 1) or 1)
+    if capacity < 1:
+        raise DomainError("invalid_capacity", "容量必须大于 0")
+    return {"code": code, "name": name, "capacity": capacity}
+
+
+def normalize_segment(payload):
+    code = require_text(payload, "code")
+    district_code = require_text(payload, "district_code")
+    pipeline_id = payload.get("pipeline_id", "")
+    return {"code": code, "district_code": district_code, "pipeline_id": pipeline_id}
+
+
+def normalize_valve(payload):
+    code = require_text(payload, "code")
+    district_code = require_text(payload, "district_code")
+    name = payload.get("name", "")
+    is_boundary = bool(payload.get("is_boundary", False))
+    shared_with = payload.get("shared_with", [])
+    if not isinstance(shared_with, list):
+        raise DomainError("invalid_shared_with", "共用片区必须是列表")
+    shared_with = [str(value).strip() for value in shared_with if str(value).strip()]
+    return {"code": code, "name": name, "district_code": district_code,
+            "is_boundary": is_boundary, "shared_with": shared_with}
+
+
+def normalize_task_create(payload):
+    segment_code = require_text(payload, "segment_code")
+    valve_codes = payload.get("valve_codes", [])
+    if not isinstance(valve_codes, list) or not valve_codes:
+        raise DomainError("valve_codes_required", "至少需要一个阀门")
+    valve_codes = [str(value).strip() for value in valve_codes if str(value).strip()]
+    if not valve_codes:
+        raise DomainError("valve_codes_required", "至少需要一个阀门")
+    leak_item_id = payload.get("leak_item_id")
+    if leak_item_id is not None:
+        leak_item_id = int(leak_item_id)
+    return {"segment_code": segment_code, "valve_codes": valve_codes, "leak_item_id": leak_item_id}
+
+
+def normalize_positions(payload):
+    records = payload.get("records", [])
+    if not isinstance(records, list) or not records:
+        raise DomainError("records_required", "至少需要一条阀位记录")
+    result = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            raise DomainError("invalid_record", "阀位记录格式无效")
+        valve_code = require_text(rec, "valve_code")
+        position = require_text(rec, "position")
+        if position not in ("open", "close", "unknown"):
+            raise DomainError("invalid_position", "阀位必须是 open/close/unknown")
+        recorded_at = parse_timestamp(rec, "recorded_at")
+        source = rec.get("source", "offline")
+        if source not in ("online", "offline"):
+            raise DomainError("invalid_source", "来源必须是 online/offline")
+        result.append({"valve_code": valve_code, "position": position,
+                       "recorded_at": recorded_at, "source": source, "note": rec.get("note", "")})
+    return result
+
+
+def normalize_review_resolve(payload):
+    choice = require_text(payload, "choice")
+    if choice not in ("a", "b"):
+        raise DomainError("invalid_choice", "选择必须是 a 或 b")
+    return {"choice": choice}
+
+
+def normalize_ack(payload):
+    result = require_text(payload, "result")
+    if result not in ("succeeded", "failed"):
+        raise DomainError("invalid_result", "回执结果必须是 succeeded/failed")
+    return {"result": result, "error": payload.get("error", "")}

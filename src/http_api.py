@@ -2,7 +2,7 @@ import json
 import mimetypes
 import os
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .domain import DomainError
 
@@ -45,19 +45,40 @@ def build_handler(service, static_dir):
 
         def do_GET(self):
             try:
-                path = urlparse(self.path).path
+                parsed = urlparse(self.path)
+                path = parsed.path
+                query = parse_qs(parsed.query)
                 if path == "/health":
                     return self._send(200, {"status": "ok"})
                 if path == "/api/state":
                     return self._send(200, service.state())
                 if path == "/api/items":
                     return self._send(200, {"items": service.list_items()})
+                if path == "/api/districts":
+                    return self._send(200, {"districts": service.list_districts()})
+                if path == "/api/segments":
+                    return self._send(200, {"segments": service.list_segments()})
+                if path == "/api/valves":
+                    return self._send(200, {"valves": service.list_valves()})
+                if path == "/api/isolation-tasks":
+                    district = query.get("district", [None])[0]
+                    status = query.get("status", [None])[0]
+                    return self._send(200, {"tasks": service.list_isolation_tasks(district, status)})
                 parts = [part for part in path.split("/") if part]
                 if len(parts) == 3 and parts[:2] == ["api", "items"]:
                     return self._send(200, service.get_item(int(parts[2])))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "audit":
                     item = service.get_item(int(parts[2]))
                     return self._send(200, {"events": item["audit"]})
+                if len(parts) == 3 and parts[:2] == ["api", "isolation-tasks"]:
+                    return self._send(200, service.get_isolation_task(int(parts[2])))
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "commands":
+                    return self._send(200, {"commands": service.list_commands(int(parts[2]))})
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "reviews":
+                    status = query.get("status", [None])[0]
+                    return self._send(200, {"reviews": service.list_reviews(int(parts[2]), status)})
+                if len(parts) == 3 and parts[:2] == ["api", "valve-commands"]:
+                    return self._send(200, service.get_command(int(parts[2])))
                 if path == "/":
                     file_path = os.path.join(static_dir, "index.html")
                     with open(file_path, "rb") as handle:
@@ -86,6 +107,30 @@ def build_handler(service, static_dir):
                         raise DomainError("action_required", "缺少 action", 400)
                     expected = payload.pop("expected_version", None)
                     return self._send(200, service.act(int(parts[2]), action, payload, actor, role, expected, region))
+                if parts == ["api", "districts"]:
+                    return self._send(201, service.register_district(payload, actor, role))
+                if parts == ["api", "segments"]:
+                    return self._send(201, service.register_segment(payload, actor, role))
+                if parts == ["api", "valves"]:
+                    return self._send(201, service.register_valve(payload, actor, role))
+                if parts == ["api", "isolation-tasks"]:
+                    return self._send(201, service.create_isolation_task(payload, actor, role, region))
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "confirm":
+                    return self._send(200, service.confirm_cross_district(int(parts[2]), actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "complete":
+                    return self._send(200, service.complete_task(int(parts[2]), actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "cancel":
+                    return self._send(200, service.cancel_task(int(parts[2]), actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "issue":
+                    return self._send(200, service.issue_commands(int(parts[2]), actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "positions":
+                    return self._send(200, service.merge_positions(int(parts[2]), payload, actor, role))
+                if len(parts) == 6 and parts[:2] == ["api", "isolation-tasks"] and parts[3] == "reviews" and parts[5] == "resolve":
+                    return self._send(200, service.resolve_review(int(parts[2]), int(parts[4]), payload, actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "valve-commands"] and parts[3] == "ack":
+                    return self._send(200, service.ack_command(int(parts[2]), payload, actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "valve-commands"] and parts[3] == "retry":
+                    return self._send(200, service.retry_command(int(parts[2]), actor, role))
                 return self._send(404, {"error": "not_found", "message": "接口不存在"})
             except DomainError as exc:
                 return self._error(exc)

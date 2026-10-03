@@ -2,4 +2,17 @@
 GET /api/state
 POST /api/items
 POST /api/items/{id}/sources
-POST /api/items/{id}/actions</pre></body></html>
+POST /api/items/{id}/actions</pre><p>片区台账、隔离任务、阀门指令与断网阀位合并：</p><pre>POST /api/districts      GET /api/districts
+POST /api/segments      GET /api/segments
+POST /api/valves        GET /api/valves
+POST /api/isolation-tasks
+GET  /api/isolation-tasks
+POST /api/isolation-tasks/{id}/confirm   (中心调度确认跨片区作业)
+POST /api/isolation-tasks/{id}/issue
+POST /api/isolation-tasks/{id}/complete
+POST /api/isolation-tasks/{id}/cancel
+POST /api/isolation-tasks/{id}/positions (断网阀位回网合并)
+GET  /api/isolation-tasks/{id}/reviews
+POST /api/isolation-tasks/{id}/reviews/{rid}/resolve
+POST /api/valve-commands/{id}/ack        (重复回执不重复执行)
+POST /api/valve-commands/{id}/retry      (失败从断点重试)</pre></body></html>
