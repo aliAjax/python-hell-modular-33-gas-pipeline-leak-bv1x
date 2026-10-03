@@ -9,12 +9,20 @@ from src.repository import Repository
 from src.service import Service
 
 
+def seed(repo):
+    repo.upsert_region({"code": "EAST", "name": "东片区", "capacity": 5})
+    repo.upsert_segment({"segment_id": "S-8", "region_code": "EAST"})
+    for valve in ("V-1", "V-2"):
+        repo.upsert_valve({"valve_id": valve, "region_code": "EAST"})
+
+
 class WorkflowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.repo = Repository(self.tmp.name)
         self.repo.initialize()
+        seed(self.repo)
         self.service = Service(self.repo)
 
     def tearDown(self):
@@ -29,13 +37,16 @@ class WorkflowTest(unittest.TestCase):
             "sensor_value_ppm": 120,
             "odor_reports": 3,
             "reporter": "dispatch-1",
-        }, "dispatch-1", "dispatcher")
+        }, "dispatch-1", "dispatcher", region="EAST")
         item = self.service.act(item["id"], "verify", {"field_confirmed": True}, "resp-1", "responder", item["version"])
         self.assertEqual(item["payload"]["assessment"]["level"], "critical")
-        item = self.service.act(item["id"], "isolate", {"valve_sequence": ["V-1", "V-2"]}, "sup-1", "supervisor", item["version"])
+        outcome = self.service.act(item["id"], "isolate", {"valve_sequence": ["V-1", "V-2"]}, "sup-1", "supervisor", item["version"], region="EAST")
+        self.assertEqual(outcome["decision"], "started")
+        item = self.service.get_item(item["id"])
+        self.assertEqual(item["status"], "isolated")
         item = self.service.act(item["id"], "repair", {"work_order": "WO-1"}, "tech-1", "technician", item["version"])
         item = self.service.act(item["id"], "pressure_test", {"test_passed": True, "pressure_kpa": 150, "minimum_pressure_kpa": 100}, "tech-1", "technician", item["version"])
-        item = self.service.act(item["id"], "restore", {"hazards_clear": True}, "sup-1", "supervisor", item["version"])
+        item = self.service.act(item["id"], "restore", {"hazards_clear": True}, "sup-1", "supervisor", item["version"], region="EAST")
         self.assertEqual(item["status"], "restored")
         self.assertGreaterEqual(len(item["audit"]), 6)
 

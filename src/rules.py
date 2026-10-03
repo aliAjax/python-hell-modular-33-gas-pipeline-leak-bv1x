@@ -2,19 +2,30 @@ from .domain import DomainError
 
 ENTITY_TYPE = "pipeline_leak"
 INITIAL_STATUS = "reported"
-CREATE_ROLES = {"dispatcher", "responder"}
+CREATE_ROLES = {"dispatcher", "regulator"}
 SOURCE_ROLES = {"dispatcher", "responder", "patrol", "sensor"}
 ACTION_ROLES = {
     "verify": {"dispatcher", "responder"},
-    "isolate": {"supervisor", "responder"},
+    "isolate": {"dispatcher", "supervisor", "regulator"},
     "repair": {"technician"},
     "pressure_test": {"technician"},
-    "restore": {"supervisor"},
-    "cancel": {"supervisor"},
+    "restore": {"supervisor", "regulator"},
+    "cancel": {"supervisor", "regulator"},
+    "joint_confirm": {"regulator"},
+    "resolve_valve_conflict": {"supervisor", "regulator"},
 }
-ENFORCE_REGION = False
-REGION_SENSITIVE_ACTIONS = set()
-ACTION_REQUIRES_VERSION = {"isolate", "repair", "pressure_test", "restore", "cancel"}
+ENFORCE_REGION = True
+REGION_SENSITIVE_ACTIONS = {"isolate", "joint_confirm", "resolve_valve_conflict", "cancel", "restore"}
+ACTION_REQUIRES_VERSION = {"isolate", "repair", "pressure_test", "restore", "cancel", "joint_confirm", "resolve_valve_conflict"}
+
+# 隔离任务会占用片区隔离容量的状态
+ACTIVE_ISOLATION_STATUSES = ("isolating", "isolated", "repaired", "tested")
+QUEUE_WAIT_STATUS = "queued"
+ISOLATING_STATUS = "isolating"
+ISOLATED_STATUS = "isolated"
+
+OPEN_CONFLICT = "open"
+RESOLVED_CONFLICT = "resolved"
 
 
 def assess(payload):
@@ -60,18 +71,6 @@ def apply_action(item, action, payload, actor, role):
         current["verification"] = {"confirmed": True, "note": payload.get("note", "")}
         return "verified", current, {"assessment": current["assessment"], "verification": current["verification"]}
 
-    if action == "isolate":
-        _need_status(item, {"verified"})
-        sequence = payload.get("valve_sequence")
-        if not isinstance(sequence, list) or len(sequence) < 2:
-            raise DomainError("valve_sequence_required", "至少需要提交两个阀门及顺序")
-        if current.get("valve_status_conflict"):
-            raise DomainError("valve_status_conflict", "阀门状态存在冲突，不能隔离", 409)
-        if not all(isinstance(value, str) and value.strip() for value in sequence):
-            raise DomainError("invalid_valve_sequence", "阀门顺序格式无效")
-        current["valve_sequence"] = [value.strip() for value in sequence]
-        return "isolated", current, {"valve_sequence": current["valve_sequence"]}
-
     if action == "repair":
         _need_status(item, {"isolated", "repaired"})
         work_order = _text(payload, "work_order")
@@ -100,9 +99,12 @@ def apply_action(item, action, payload, actor, role):
         return "restored", current, {"restoration": current["restoration"]}
 
     if action == "cancel":
-        _need_status(item, {"reported", "verified"})
+        _need_status(item, {"reported", "verified", "queued", "isolating", "isolated"})
         reason = _text(payload, "reason")
         current["cancellation"] = {"reason": reason, "actor": actor}
         return "cancelled", current, {"reason": reason}
+
+    if action in ("isolate", "joint_confirm", "resolve_valve_conflict"):
+        raise DomainError("orchestrated_action", "该操作由调度编排层处理")
 
     raise DomainError("unknown_action", "不支持的操作")

@@ -87,3 +87,78 @@ def normalize_source(payload):
         "note": payload.get("note", ""),
     }
     return result
+
+
+def normalize_region(payload):
+    code = require_text(payload, "code")
+    name = require_text(payload, "name")
+    capacity = payload.get("capacity", 0)
+    if isinstance(capacity, bool):
+        raise DomainError("invalid_capacity", "容量必须是非负整数")
+    try:
+        capacity = int(capacity)
+    except (TypeError, ValueError):
+        raise DomainError("invalid_capacity", "容量必须是非负整数")
+    if capacity < 0:
+        raise DomainError("invalid_capacity", "容量不能为负数")
+    return {"code": code, "name": name, "capacity": capacity}
+
+
+def normalize_segment(payload):
+    return {"segment_id": require_text(payload, "segment_id"), "region_code": require_text(payload, "region_code")}
+
+
+def normalize_valve(payload):
+    valve_id = require_text(payload, "valve_id")
+    region_code = require_text(payload, "region_code")
+    shared_with = payload.get("shared_with")
+    if shared_with is not None:
+        if not isinstance(shared_with, str) or not shared_with.strip():
+            raise DomainError("invalid_shared_with", "shared_with 必须是片区编号或留空")
+        shared_with = shared_with.strip()
+        if shared_with == region_code:
+            raise DomainError("invalid_shared_with", "界阀不能与所属片区相同")
+    return {"valve_id": valve_id, "region_code": region_code, "shared_with": shared_with}
+
+
+def normalize_valve_sequence(payload):
+    sequence = payload.get("valve_sequence")
+    if not isinstance(sequence, list) or len(sequence) < 2:
+        raise DomainError("valve_sequence_required", "至少需要提交两个阀门及顺序")
+    result = []
+    for value in sequence:
+        if not isinstance(value, str) or not value.strip():
+            raise DomainError("invalid_valve_sequence", "阀门顺序格式无效")
+        valve_id = value.strip()
+        if valve_id in result:
+            raise DomainError("duplicate_valve_in_sequence", "同一阀门在指令序列中出现了两次")
+        result.append(valve_id)
+    return result
+
+
+def normalize_reading_records(payload):
+    records = payload.get("records")
+    if not isinstance(records, list) or not records:
+        raise DomainError("records_required", "至少需要一条阀位记录")
+    normalized = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise DomainError("invalid_reading", "阀位记录格式无效")
+        normalized.append(
+            {
+                "client_id": require_text(record, "client_id"),
+                "valve_id": require_text(record, "valve_id"),
+                "position": require_text(record, "position"),
+                "observed_at": parse_timestamp(record, "observed_at"),
+                "device_id": str(record.get("device_id", "") or "").strip(),
+            }
+        )
+    return normalized
+
+
+def normalize_receipt(payload):
+    receipt_id = require_text(payload, "receipt_id")
+    result = require_text(payload, "result")
+    if result not in ("acked", "failed"):
+        raise DomainError("invalid_receipt_result", "回执结果只能是 acked 或 failed")
+    return {"receipt_id": receipt_id, "result": result, "detail": str(payload.get("detail", "") or "")}

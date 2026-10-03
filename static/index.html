@@ -1,5 +1,17 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>燃气管线泄漏响应</title><body><h1>燃气管线泄漏检测与隔离协调</h1><p>使用 JSON API 创建泄漏事件、登记巡检或传感记录，并完成核验、隔离、抢修、试压与恢复。</p><pre>GET /health
-GET /api/state
-POST /api/items
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>管网隔离与阀门调度</title><body><h1>燃气管网隔离与阀门调度协调</h1>
+<p>隔离任务、阀门指令与片区台账联动：调度员只开本片区管段的单，跨片区联合作业须中心调度确认；片区容量满新任务先排队；现场断网阀位回网后合并，同阀不同阀位并列待复核；阀门命令失败从断点重试，重复回执不重复执行；状态全部落盘，关服务再启动后容量占用、待复核记录与未完成指令照旧接得上。</p>
+<pre>GET  /health
+GET  /api/state
+GET  /api/queue
+GET  /api/conflicts?status=open
+GET  /api/ledger
+POST /api/ledger/regions|segments|valves      （X-Role: regulator）
+POST /api/items                                （调度员需带本片区 X-Region）
 POST /api/items/{id}/sources
-POST /api/items/{id}/actions</pre></body></html>
+POST /api/items/{id}/actions                   verify|isolate|joint_confirm|repair|pressure_test|restore|cancel
+POST /api/items/{id}/commands/retry            失败指令从断点重试
+POST /api/items/{id}/commands/{cid}/receipt    回执上报（重复回执幂等）
+POST /api/valve-readings                       现场断网阀位回网批量合并
+POST /api/conflicts/{id}/resolve               阀位冲突复核裁决</pre>
+<p>请求头：<code>X-User-Id</code> / <code>X-Role</code>（dispatcher、supervisor、regulator、technician、responder、patrol）/ <code>X-Region</code>。隔离与重试等动作需带 <code>expected_version</code>。模型不替代 SCADA、管网水力计算或正式应急预案。</p>
+</body></html>

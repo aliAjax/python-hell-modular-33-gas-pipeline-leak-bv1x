@@ -1,8 +1,7 @@
 import json
-import mimetypes
 import os
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from .domain import DomainError
 
@@ -45,13 +44,21 @@ def build_handler(service, static_dir):
 
         def do_GET(self):
             try:
-                path = urlparse(self.path).path
+                parsed = urlparse(self.path)
+                path = parsed.path
                 if path == "/health":
                     return self._send(200, {"status": "ok"})
                 if path == "/api/state":
                     return self._send(200, service.state())
                 if path == "/api/items":
                     return self._send(200, {"items": service.list_items()})
+                if path == "/api/queue":
+                    return self._send(200, {"queue": service.queue()})
+                if path == "/api/conflicts":
+                    status_filter = (parse_qs(parsed.query).get("status") or [None])[0]
+                    return self._send(200, {"conflicts": service.conflicts(status_filter)})
+                if path == "/api/ledger":
+                    return self._send(200, service.ledger())
                 parts = [part for part in path.split("/") if part]
                 if len(parts) == 3 and parts[:2] == ["api", "items"]:
                     return self._send(200, service.get_item(int(parts[2])))
@@ -78,6 +85,16 @@ def build_handler(service, static_dir):
                 parts = [part for part in path.split("/") if part]
                 if parts == ["api", "items"]:
                     return self._send(201, service.create_item(payload, actor, role, region))
+                if parts == ["api", "ledger", "regions"]:
+                    return self._send(201, service.upsert_region(payload, actor, role))
+                if parts == ["api", "ledger", "segments"]:
+                    return self._send(201, service.upsert_segment(payload, actor, role))
+                if parts == ["api", "ledger", "valves"]:
+                    return self._send(201, service.upsert_valve(payload, actor, role))
+                if parts == ["api", "valve-readings"]:
+                    return self._send(201, service.merge_field_readings(payload, actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "conflicts"] and parts[3] == "resolve":
+                    return self._send(200, service.resolve_conflict_direct(int(parts[2]), payload, actor, role, region))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "sources":
                     return self._send(201, service.add_source(int(parts[2]), payload, actor, role, region))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "actions":
@@ -86,6 +103,10 @@ def build_handler(service, static_dir):
                         raise DomainError("action_required", "缺少 action", 400)
                     expected = payload.pop("expected_version", None)
                     return self._send(200, service.act(int(parts[2]), action, payload, actor, role, expected, region))
+                if len(parts) == 5 and parts[:2] == ["api", "items"] and parts[3] == "commands" and parts[4] == "retry":
+                    return self._send(200, service.retry_command(int(parts[2]), actor, role, region))
+                if len(parts) == 6 and parts[:2] == ["api", "items"] and parts[3] == "commands" and parts[5] == "receipt":
+                    return self._send(200, service.command_receipt(int(parts[2]), int(parts[4]), payload))
                 return self._send(404, {"error": "not_found", "message": "接口不存在"})
             except DomainError as exc:
                 return self._error(exc)
